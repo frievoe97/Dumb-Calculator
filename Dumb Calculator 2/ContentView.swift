@@ -7,7 +7,15 @@
 
 import SwiftUI
 
+enum ColorScheme: String, CaseIterable {
+    case dark = "Dark"
+    case light = "Light"
+    case system = "System"
+}
+
 struct ContentView: View {
+    @AppStorage("colorScheme") private var colorScheme: ColorScheme = .system
+    @AppStorage("isDumbMode") private var isDumbMode = false
     @State private var displayText = "0"
     @State private var currentNumber = ""
     @State private var currentOperation: String?
@@ -15,8 +23,16 @@ struct ContentView: View {
     @State private var fullExpression = ""
     @State private var history: [String] = []
     @State private var isNewCalculation = false
+    @State private var showingMenu = false
+    @State private var showingAbout = false
+    @State private var currentButtons: [[String]] = [
+        ["7", "8", "9", "÷"],
+        ["4", "5", "6", "×"],
+        ["1", "2", "3", "-"],
+        ["0", ",", "=", "+"]
+    ]
     
-    let buttons: [[String]] = [
+    private let defaultButtons = [
         ["7", "8", "9", "÷"],
         ["4", "5", "6", "×"],
         ["1", "2", "3", "-"],
@@ -26,6 +42,11 @@ struct ContentView: View {
     var body: some View {
         GeometryReader { geometry in
             VStack(spacing: 0) {
+                // Menu Button
+                MenuButton(showingMenu: $showingMenu, showingAbout: $showingAbout, isDumbMode: $isDumbMode, colorScheme: $colorScheme, onClearHistory: {
+                    history.removeAll()
+                })
+                
                 // History area
                 VStack(spacing: 0) {
                     ScrollViewReader { proxy in
@@ -69,7 +90,7 @@ struct ContentView: View {
                 
                 // Buttons area
                 VStack(spacing: 0) {
-                    ForEach(buttons, id: \.self) { row in
+                    ForEach(currentButtons, id: \.self) { row in
                         HStack(spacing: 0) {
                             ForEach(row, id: \.self) { button in
                                 Button(action: {
@@ -90,12 +111,15 @@ struct ContentView: View {
             }
         }
         .background(Color.black)
+        .preferredColorScheme(colorScheme == .system ? nil : 
+                            colorScheme == .dark ? .dark : .light)
     }
 
-     
-
-    
     func buttonPressed(_ button: String) {
+        if isDumbMode {
+            shuffleButtons()
+        }
+        
         switch button {
         case "0"..."9":
             if isNewCalculation {
@@ -158,6 +182,15 @@ struct ContentView: View {
         }
     }
     
+    func shuffleButtons() {
+        var allButtons = currentButtons.joined().map { $0 }
+
+        allButtons.shuffle()
+        currentButtons = stride(from: 0, to: allButtons.count, by: 4).map {
+            Array(allButtons[$0..<min($0 + 4, allButtons.count)])
+        }
+    }
+    
     func resetCalculator() {
         displayText = "0"
         currentNumber = ""
@@ -165,6 +198,7 @@ struct ContentView: View {
         previousNumber = nil
         fullExpression = ""
         isNewCalculation = false
+        currentButtons = defaultButtons
     }
     
     func updateFullExpression() {
@@ -176,6 +210,13 @@ struct ContentView: View {
     }
     
     func calculate(_ a: Double, _ b: Double, _ operation: String) -> Double {
+        if isDumbMode {
+            // Occasionally make "mistakes" in dumb mode
+            if Double.random(in: 0...1) < 0.2 {  // 20% chance of being dumb
+                return Double.random(in: a-b...a+b)  // Return a random number around the actual result
+            }
+        }
+        
         switch operation {
         case "+": return a + b
         case "-": return a - b
@@ -191,6 +232,100 @@ struct ContentView: View {
         formatter.maximumFractionDigits = 10
         formatter.decimalSeparator = ","
         return formatter.string(from: NSNumber(value: number)) ?? "0"
+    }
+}
+
+struct AboutView: View {
+    var body: some View {
+        NavigationView {
+            List {
+                Section {
+                    VStack(alignment: .center, spacing: 12) {
+                        Image(systemName: "calculator")
+                            .font(.system(size: 60))
+                            .foregroundColor(.orange)
+                        Text("Dumb Calculator")
+                            .font(.title2.bold())
+                        Text("Version 1.0")
+                            .foregroundColor(.secondary)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical)
+                }
+                
+                Section("About") {
+                    Text("A simple calculator with a twist - it can be dumb sometimes!")
+                        .padding(.vertical, 8)
+                }
+                
+                Section("Links") {
+                    Link(destination: URL(string: "https://github.com/yourusername/DumbCalculator")!) {
+                        HStack {
+                            Image(systemName: "github")
+                            Text("View on GitHub")
+                            Spacer()
+                            Image(systemName: "arrow.up.right")
+                        }
+                    }
+                }
+                
+                Section("License") {
+                    Text("MIT License\n\nCopyright (c) 2024\n\nPermission is hereby granted, free of charge...")
+                        .font(.footnote)
+                        .foregroundColor(.secondary)
+                }
+            }
+            .navigationTitle("About")
+            #if !os(macOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
+        }
+    }
+}
+
+extension View {
+    @ViewBuilder func `if`<Content: View>(_ condition: Bool, transform: (Self) -> Content) -> some View {
+        if condition {
+            transform(self)
+        } else {
+            self
+        }
+    }
+}
+
+struct MenuButton: View {
+    @Binding var showingMenu: Bool
+    @Binding var showingAbout: Bool
+    @Binding var isDumbMode: Bool
+    @Binding var colorScheme: ColorScheme
+    let onClearHistory: () -> Void
+    
+    var body: some View {
+        Button(action: { showingMenu = true }) {
+            Image(systemName: "ellipsis")
+                .foregroundColor(.gray.opacity(0.6))
+                .font(.system(size: 20))
+        }
+        .padding(.top, 8)
+        .confirmationDialog("Menu", isPresented: $showingMenu) {
+            Button("Clear History", action: onClearHistory)
+            Button(isDumbMode ? "Disable Dumb Mode" : "Enable Dumb Mode") {
+                isDumbMode.toggle()
+            }
+            Button(colorScheme == .dark ? "Light Mode" : "Dark Mode") {
+                colorScheme = colorScheme == .dark ? .light : .dark
+            }
+            Button("System Appearance") {
+                colorScheme = .system
+            }
+            Button("About") {
+                showingAbout = true
+            }
+            Button("Cancel", role: .cancel) { }
+        }
+        .sheet(isPresented: $showingAbout) {
+            AboutView()
+        }
     }
 }
 
