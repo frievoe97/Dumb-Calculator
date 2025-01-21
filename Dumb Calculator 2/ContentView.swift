@@ -7,123 +7,170 @@
 
 import SwiftUI
 
-enum ColorScheme: String, CaseIterable {
+// MARK: - Models & Enums
+
+enum AppearanceMode: String, CaseIterable {
     case dark = "Dark"
     case light = "Light"
     case system = "System"
 }
 
+enum CalculatorButton {
+    case number(String)
+    case operation(String)
+    case decimal
+    case equals
+    
+    var displayValue: String {
+        switch self {
+        case .number(let value): return value
+        case .operation(let symbol): return symbol
+        case .decimal: return ","
+        case .equals: return "="
+        }
+    }
+}
+
+// MARK: - Main View
+
 struct ContentView: View {
-    @AppStorage("colorScheme") private var colorScheme: ColorScheme = .system
+    // MARK: - Properties
+    
+    @AppStorage("appearanceMode") private var appearanceMode: AppearanceMode = .system
     @AppStorage("isDumbMode") private var isDumbMode = false
-    @State private var displayText = "0"
-    @State private var currentNumber = ""
-    @State private var currentOperation: String?
-    @State private var previousNumber: Double?
-    @State private var fullExpression = ""
+    
+    @State private var display = CalculatorDisplay()
     @State private var history: [String] = []
-    @State private var isNewCalculation = false
+    @State private var currentButtons: [[String]]
     @State private var showingMenu = false
     @State private var showingAbout = false
-    @State private var currentButtons: [[String]] = [
+    
+    private let defaultButtons: [[String]] = [
         ["7", "8", "9", "÷"],
         ["4", "5", "6", "×"],
         ["1", "2", "3", "-"],
         ["0", ",", "=", "+"]
     ]
     
-    private let defaultButtons = [
-        ["7", "8", "9", "÷"],
-        ["4", "5", "6", "×"],
-        ["1", "2", "3", "-"],
-        ["0", ",", "=", "+"]
-    ]
+    // MARK: - Initialization
+    
+    init() {
+        _currentButtons = State(initialValue: [
+            ["7", "8", "9", "÷"],
+            ["4", "5", "6", "×"],
+            ["1", "2", "3", "-"],
+            ["0", ",", "=", "+"]
+        ])
+    }
+    
+    // MARK: - Body
     
     var body: some View {
         GeometryReader { geometry in
             VStack(spacing: 0) {
-                // Menu Button
-                MenuButton(showingMenu: $showingMenu, showingAbout: $showingAbout, isDumbMode: $isDumbMode, colorScheme: $colorScheme, onClearHistory: {
-                    history.removeAll()
-                })
-                
-                // History area
-                VStack(spacing: 0) {
-                    ScrollViewReader { proxy in
-                        ScrollView(.vertical, showsIndicators: false) {
-                            LazyVStack(alignment: .trailing, spacing: 8) {
-                                Spacer() // Sorgt dafür, dass Inhalte am unteren Rand bleiben
-                                ForEach(Array(history.enumerated()), id: \.element) { index, calculation in
-                                    Text(calculation)
-                                        .font(.system(size: 20))
-                                        .foregroundColor(.gray)
-                                        .frame(maxWidth: .infinity, alignment: .trailing)
-                                }
-                            }
-                            .padding()
-                        }
-                        .onChange(of: history) { _ in
-                            // Automatisch nach unten scrollen, wenn neue Einträge hinzukommen
-                            if let lastIndex = history.indices.last {
-                                proxy.scrollTo(history[lastIndex], anchor: .bottom)
-                            }
-                        }
-                    }
-                }
-                .frame(height: geometry.size.height * 0.3, alignment: .bottom)
-                .clipped()
-
-                
-                // Display area
-                Text(fullExpression.isEmpty ? displayText : fullExpression)
-                    .font(.system(size: 70))
-                    .minimumScaleFactor(0.5)
-                    .lineLimit(1)
-                    .frame(maxWidth: .infinity, alignment: .trailing)
-                    .padding()
-                    .foregroundColor(.white)
-                    .textSelection(.enabled)
-                    .onTapGesture(count: 2) {
-                        resetCalculator()
-                    }
-                    .frame(height: geometry.size.height * 0.2) // Feste Höhe für die Display Area
-                
-                // Buttons area
-                VStack(spacing: 0) {
-                    ForEach(currentButtons, id: \.self) { row in
-                        HStack(spacing: 0) {
-                            ForEach(row, id: \.self) { button in
-                                Button(action: {
-                                    buttonPressed(button)
-                                }) {
-                                    Text(button)
-                                        .font(.system(size: 32))
-                                        .frame(width: geometry.size.width / 4,
-                                            height: geometry.size.width / 4)
-                                        .background(Color.orange)
-                                        .foregroundColor(.white)
-                                }
-                            }
-                        }
-                    }
-                }
-                .frame(height: geometry.size.width) // Feste Höhe der Buttons
+                menuButton
+                historyView(height: geometry.size.height * 0.3)
+                displayView(height: geometry.size.height * 0.2)
+                buttonGrid(width: geometry.size.width)
             }
         }
         .background(Color.black)
-        .preferredColorScheme(colorScheme == .system ? nil : 
-                            colorScheme == .dark ? .dark : .light)
+        .preferredColorScheme(appearanceMode.systemAppearance)
     }
-
-    func buttonPressed(_ button: String) {
+    
+    // MARK: - Subviews
+    
+    private var menuButton: some View {
+        MenuButton(
+            showingMenu: $showingMenu,
+            showingAbout: $showingAbout,
+            isDumbMode: $isDumbMode,
+            appearanceMode: $appearanceMode,
+            onClearHistory: { history.removeAll() }
+        )
+    }
+    
+    private func historyView(height: CGFloat) -> some View {
+        CalculatorHistoryView(history: history, height: height)
+    }
+    
+    private func displayView(height: CGFloat) -> some View {
+        CalculatorDisplayView(
+            text: display.currentDisplay,
+            height: height,
+            onDoubleTap: resetCalculator
+        )
+    }
+    
+    private func buttonGrid(width: CGFloat) -> some View {
+        VStack(spacing: 0) {
+            ForEach(currentButtons, id: \.self) { row in
+                HStack(spacing: 0) {
+                    ForEach(row, id: \.self) { button in
+                        CalculatorButtonView(
+                            symbol: button,
+                            size: width / 4,
+                            action: { buttonPressed(button) }
+                        )
+                    }
+                }
+            }
+        }
+        .frame(height: width)
+    }
+    
+    // MARK: - Actions
+    
+    private func buttonPressed(_ button: String) {
         if isDumbMode {
             shuffleButtons()
         }
         
+        display.processInput(button) { result in
+            if let result = result {
+                history.append("\(display.currentExpression) = \(result)")
+            }
+        }
+    }
+    
+    private func shuffleButtons() {
+        var allButtons = currentButtons.joined().map { $0 }
+        allButtons.shuffle()
+        currentButtons = stride(from: 0, to: allButtons.count, by: 4).map {
+            Array(allButtons[$0..<min($0 + 4, allButtons.count)])
+        }
+    }
+    
+    private func resetCalculator() {
+        display.reset()
+        currentButtons = defaultButtons
+    }
+}
+
+// MARK: - Supporting Types
+
+struct CalculatorDisplay {
+    private(set) var currentDisplay = "0"
+    private(set) var currentExpression = ""
+    private var currentNumber = ""
+    private var currentOperation: String?
+    private var previousNumber: Double?
+    private var isNewCalculation = false
+    
+    mutating func reset() {
+        currentDisplay = "0"
+        currentExpression = ""
+        currentNumber = ""
+        currentOperation = nil
+        previousNumber = nil
+        isNewCalculation = false
+    }
+    
+    mutating func processInput(_ button: String, onResult: (String?) -> Void) {
         switch button {
         case "0"..."9":
             if isNewCalculation {
-                resetCalculator()
+                reset()
                 isNewCalculation = false
             }
             if currentNumber == "0" {
@@ -131,18 +178,18 @@ struct ContentView: View {
             } else {
                 currentNumber += button
             }
-            displayText = currentNumber
-            updateFullExpression()
+            currentDisplay = currentNumber
+            updateExpression()
             
         case ",":
             if isNewCalculation {
-                resetCalculator()
+                reset()
                 isNewCalculation = false
             }
             if !currentNumber.contains(",") {
                 currentNumber += currentNumber.isEmpty ? "0," : ","
-                displayText = currentNumber
-                updateFullExpression()
+                currentDisplay = currentNumber
+                updateExpression()
             }
             
         case "+", "-", "×", "÷":
@@ -153,7 +200,7 @@ struct ContentView: View {
                 if let number = Double(currentNumber.replacingOccurrences(of: ",", with: ".")) {
                     if let previous = previousNumber, let operation = currentOperation {
                         previousNumber = calculate(previous, number, operation)
-                        displayText = formatNumber(previousNumber!)
+                        currentDisplay = formatNumber(previousNumber!)
                     } else {
                         previousNumber = number
                     }
@@ -161,17 +208,15 @@ struct ContentView: View {
             }
             currentOperation = button
             currentNumber = ""
-            updateFullExpression()
+            updateExpression()
             
         case "=":
             if let number = Double(currentNumber.replacingOccurrences(of: ",", with: ".")),
                let previous = previousNumber,
                let operation = currentOperation {
                 let result = calculate(previous, number, operation)
-                let finalExpression = "\(fullExpression) = \(formatNumber(result))"
-                history.append(finalExpression)
-                displayText = formatNumber(result)
-                fullExpression = ""
+                currentDisplay = formatNumber(result)
+                onResult(currentDisplay)
                 previousNumber = result
                 currentNumber = formatNumber(result)
                 currentOperation = nil
@@ -182,41 +227,15 @@ struct ContentView: View {
         }
     }
     
-    func shuffleButtons() {
-        var allButtons = currentButtons.joined().map { $0 }
-
-        allButtons.shuffle()
-        currentButtons = stride(from: 0, to: allButtons.count, by: 4).map {
-            Array(allButtons[$0..<min($0 + 4, allButtons.count)])
-        }
-    }
-    
-    func resetCalculator() {
-        displayText = "0"
-        currentNumber = ""
-        currentOperation = nil
-        previousNumber = nil
-        fullExpression = ""
-        isNewCalculation = false
-        currentButtons = defaultButtons
-    }
-    
-    func updateFullExpression() {
+    private mutating func updateExpression() {
         if let operation = currentOperation {
-            fullExpression = "\(formatNumber(previousNumber!)) \(operation)\(currentNumber.isEmpty ? "" : " \(currentNumber)")"
+            currentExpression = "\(formatNumber(previousNumber!)) \(operation)\(currentNumber.isEmpty ? "" : " \(currentNumber)")"
         } else {
-            fullExpression = currentNumber
+            currentExpression = currentNumber
         }
     }
     
-    func calculate(_ a: Double, _ b: Double, _ operation: String) -> Double {
-        if isDumbMode {
-            // Occasionally make "mistakes" in dumb mode
-            if Double.random(in: 0...1) < 0.2 {  // 20% chance of being dumb
-                return Double.random(in: a-b...a+b)  // Return a random number around the actual result
-            }
-        }
-        
+    private func calculate(_ a: Double, _ b: Double, _ operation: String) -> Double {
         switch operation {
         case "+": return a + b
         case "-": return a - b
@@ -226,12 +245,85 @@ struct ContentView: View {
         }
     }
     
-    func formatNumber(_ number: Double) -> String {
+    private func formatNumber(_ number: Double) -> String {
         let formatter = NumberFormatter()
         formatter.minimumFractionDigits = 0
         formatter.maximumFractionDigits = 10
         formatter.decimalSeparator = ","
         return formatter.string(from: NSNumber(value: number)) ?? "0"
+    }
+}
+
+// MARK: - Supporting Views
+
+struct CalculatorHistoryView: View {
+    let history: [String]
+    let height: CGFloat
+    
+    var body: some View {
+        VStack(spacing: 0) {
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(alignment: .trailing, spacing: 8) {
+                    ForEach(Array(history.enumerated()), id: \.element) { index, calculation in
+                        Text(calculation)
+                            .font(.system(size: 20))
+                            .foregroundColor(.gray)
+                            .frame(maxWidth: .infinity, alignment: .trailing)
+                    }
+                    Spacer(minLength: 0)
+                }
+                .padding()
+            }
+        }
+        .frame(height: height, alignment: .bottom)
+        .clipped()
+    }
+}
+
+struct CalculatorDisplayView: View {
+    let text: String
+    let height: CGFloat
+    let onDoubleTap: () -> Void
+    
+    var body: some View {
+        Text(text)
+            .font(.system(size: 70))
+            .minimumScaleFactor(0.5)
+            .lineLimit(1)
+            .frame(maxWidth: .infinity, alignment: .trailing)
+            .frame(height: height)
+            .padding()
+            .foregroundColor(.white)
+            .textSelection(.enabled)
+            .onTapGesture(count: 2, perform: onDoubleTap)
+    }
+}
+
+struct CalculatorButtonView: View {
+    let symbol: String
+    let size: CGFloat
+    let action: () -> Void
+    
+    var body: some View {
+        Button(action: action) {
+            Text(symbol)
+                .font(.system(size: 32))
+                .frame(width: size, height: size)
+                .background(Color.orange)
+                .foregroundColor(.white)
+        }
+    }
+}
+
+// MARK: - Extensions
+
+extension AppearanceMode {
+    var systemAppearance: ColorScheme? {
+        switch self {
+        case .dark: return .dark
+        case .light: return .light
+        case .system: return nil
+        }
     }
 }
 
@@ -297,11 +389,11 @@ struct MenuButton: View {
     @Binding var showingMenu: Bool
     @Binding var showingAbout: Bool
     @Binding var isDumbMode: Bool
-    @Binding var colorScheme: ColorScheme
+    @Binding var appearanceMode: AppearanceMode
     let onClearHistory: () -> Void
     
     var body: some View {
-        Button(action: { showingMenu = true }) {
+        Button(action: { showingMenu.toggle() }) {
             Image(systemName: "ellipsis")
                 .foregroundColor(.gray.opacity(0.6))
                 .font(.system(size: 20))
@@ -312,11 +404,11 @@ struct MenuButton: View {
             Button(isDumbMode ? "Disable Dumb Mode" : "Enable Dumb Mode") {
                 isDumbMode.toggle()
             }
-            Button(colorScheme == .dark ? "Light Mode" : "Dark Mode") {
-                colorScheme = colorScheme == .dark ? .light : .dark
+            Button(appearanceMode == .dark ? "Light Mode" : "Dark Mode") {
+                appearanceMode = appearanceMode == .dark ? .light : .dark
             }
             Button("System Appearance") {
-                colorScheme = .system
+                appearanceMode = .system
             }
             Button("About") {
                 showingAbout = true
